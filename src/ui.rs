@@ -9,7 +9,7 @@ use ratatui::{
 };
 use std::time::Duration;
 
-use crate::app::{App, Focus, View};
+use crate::app::{App, Focus, SidebarEntry, View};
 use crate::library::fmt_duration;
 
 mod theme {
@@ -81,9 +81,22 @@ fn render_header(frame: &mut Frame, area: ratatui::layout::Rect, app: &App) {
 }
 
 fn render_body(frame: &mut Frame, area: ratatui::layout::Rect, app: &mut App) {
-    let cols = Layout::horizontal([Constraint::Length(28), Constraint::Min(0)]).split(area);
+    let show_art = area.width >= 96 && area.height >= 16;
+    let cols = if show_art {
+        Layout::horizontal([
+            Constraint::Length(28),
+            Constraint::Min(0),
+            Constraint::Length(26),
+        ])
+        .split(area)
+    } else {
+        Layout::horizontal([Constraint::Length(28), Constraint::Min(0)]).split(area)
+    };
     render_sidebar(frame, cols[0], app);
     render_library(frame, cols[1], app);
+    if show_art {
+        render_art(frame, cols[2], app);
+    }
 }
 
 fn render_sidebar(frame: &mut Frame, area: ratatui::layout::Rect, app: &App) {
@@ -97,13 +110,10 @@ fn render_sidebar(frame: &mut Frame, area: ratatui::layout::Rect, app: &App) {
     let rows = Layout::vertical([Constraint::Min(0), Constraint::Length(3)]).split(inner);
 
     let mut lines = Vec::new();
-    for (i, view) in View::ALL.iter().enumerate() {
+    for (i, entry) in app.sidebar.iter().enumerate() {
         let is_active = i == app.sidebar_index;
         let is_focused = is_active && app.focus == Focus::Sidebar;
-        let count = match view {
-            View::AllSongs | View::Recent => app.library.len(),
-            View::Favorites => app.favorites.len(),
-        };
+        let count = app.entry_count(entry);
         lines.push(
             Line::from(vec![
                 Span::styled(
@@ -111,7 +121,7 @@ fn render_sidebar(frame: &mut Frame, area: ratatui::layout::Rect, app: &App) {
                     Style::new().fg(theme::ACCENT),
                 ),
                 Span::styled(
-                    format!(" {}  ", view.icon()),
+                    format!(" {}  ", entry.icon()),
                     Style::new().fg(if is_active {
                         theme::ACCENT
                     } else {
@@ -119,7 +129,7 @@ fn render_sidebar(frame: &mut Frame, area: ratatui::layout::Rect, app: &App) {
                     }),
                 ),
                 Span::styled(
-                    view.label(),
+                    entry.label().to_string(),
                     Style::new()
                         .fg(if is_active { theme::TEXT } else { theme::MUTED })
                         .add_modifier(if is_active {
@@ -150,11 +160,60 @@ fn render_sidebar(frame: &mut Frame, area: ratatui::layout::Rect, app: &App) {
     frame.render_widget(Paragraph::new(path_lines), rows[1]);
 }
 
+fn render_art(frame: &mut Frame, area: ratatui::layout::Rect, app: &mut App) {
+    let vertical = Layout::vertical([
+        Constraint::Min(0),
+        Constraint::Length(14),
+        Constraint::Min(0),
+    ])
+    .split(area);
+
+    let block = Block::bordered()
+        .border_type(BorderType::Rounded)
+        .border_style(Style::new().fg(theme::SUBTLE))
+        .title(" COVER ");
+    let inner = block.inner(vertical[1]);
+    frame.render_widget(block, vertical[1]);
+
+    let w = inner.width as u32;
+    let h = inner.height as u32;
+    let Some(image) = app.album_art(w, h * 2) else {
+        frame.render_widget(
+            Paragraph::new("No cover")
+                .alignment(Alignment::Center)
+                .style(Style::new().fg(theme::MUTED)),
+            inner,
+        );
+        return;
+    };
+
+    let mut lines = Vec::with_capacity(h as usize);
+    for y in 0..h {
+        let mut spans = Vec::with_capacity(w as usize);
+        for x in 0..w {
+            let top = image.get_pixel(x, y * 2);
+            let bottom = image.get_pixel(x, y * 2 + 1);
+            spans.push(Span::styled(
+                "▀",
+                Style::new()
+                    .fg(Color::Rgb(top[0], top[1], top[2]))
+                    .bg(Color::Rgb(bottom[0], bottom[1], bottom[2])),
+            ));
+        }
+        lines.push(Line::from(spans));
+    }
+    frame.render_widget(Paragraph::new(lines), inner);
+}
+
 fn render_library(frame: &mut Frame, area: ratatui::layout::Rect, app: &mut App) {
     let title = if app.searching || !app.search.is_empty() {
         format!(" SEARCH “{}” ", app.search)
     } else {
-        format!(" {}  ·  {} tracks ", app.view.label(), app.visible.len())
+        format!(
+            " {}  ·  {} tracks ",
+            app.selected_entry().label(),
+            app.visible.len()
+        )
     };
 
     let block = Block::bordered()
@@ -173,7 +232,7 @@ fn render_library(frame: &mut Frame, area: ratatui::layout::Rect, app: &mut App)
                     Style::new().fg(theme::MUTED),
                 )),
             ]
-        } else if app.view == View::Favorites {
+        } else if matches!(app.selected_entry(), SidebarEntry::View(View::Favorites)) {
             vec![
                 Line::from("No favorites yet"),
                 Line::from(Span::styled(

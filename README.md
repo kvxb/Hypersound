@@ -9,7 +9,7 @@ from a folder on your machine.
 
 ```bash
 cargo build --release
-./target/release/hypersound                 # uses ~/Music
+./target/release/hypersound                 # uses ./music if present, otherwise ~/Music
 ./target/release/hypersound /path/to/music  # explicit folder
 HYPERSOUND_MUSIC_DIR=/path/to/music ./target/release/hypersound
 ```
@@ -18,6 +18,14 @@ The folder is created if it doesn't exist. The library is scanned recursively at
 supported formats are `mp3`, `flac`, `ogg`, `m4a`, `mp4`, `aac`, `wav`, `opus`, `wma`,
 `aiff`/`aif`. Titles, artists, albums and durations come from embedded tags (via `lofty`),
 with the file name used as a fallback.
+
+Every direct subfolder of the music folder becomes a playlist in the sidebar, named after the
+folder. For example, `music/01. Forte/` shows up as the "01. Forte" playlist; select it with
+`↑`/`↓` in the sidebar and press `Enter` to browse and play just that playlist's tracks.
+
+Embedded cover art is shown in a "COVER" panel for the playing track when the terminal is at
+least 96 columns wide and 16 rows tall. It is drawn with colored half-block characters
+(`▀`), so a truecolor terminal gives the best result; tracks without artwork show "No cover".
 
 ## Controls
 
@@ -57,6 +65,6 @@ src/
 ## Scope / limitations
 
 This is an intentionally small skeleton meant to be extended. Favorites are kept in memory
-for the current session, there is no playlist file or settings file yet, and the sidebar
-hosts simple views (All Songs, Recently Added, Favorites) rather than user-defined
-playlists. Those are natural next steps.
+for the current session and there is no settings file yet. Playlists come from the folder
+structure (each direct subfolder is one playlist); editing or saving playlists from within
+the app is not supported.

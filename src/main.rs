@@ -1,4 +1,5 @@
 mod app;
+mod art;
 mod library;
 mod player;
 mod ui;
@@ -63,13 +64,17 @@ fn run(
     Ok(())
 }
 
-/// Music folder resolution: CLI argument → env var → ~/Music.
+/// Music folder resolution: CLI argument → env var → ./music → ~/Music.
 fn resolve_music_dir() -> PathBuf {
     if let Some(arg) = std::env::args().nth(1) {
         return PathBuf::from(arg);
     }
     if let Ok(dir) = std::env::var("HYPERSOUND_MUSIC_DIR") {
         return PathBuf::from(dir);
+    }
+    let local = PathBuf::from("music");
+    if local.is_dir() {
+        return local;
     }
     let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
     PathBuf::from(home).join("Music")

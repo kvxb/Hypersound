@@ -1,11 +1,13 @@
 //! Application state and all keyboard-driven behaviour.
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use image::RgbaImage;
 use ratatui::widgets::TableState;
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::time::Duration;
 
+use crate::art::ArtLoader;
 use crate::library::Track;
 use crate::player::MusicPlayer;
 
@@ -42,10 +44,32 @@ impl View {
     }
 }
 
+#[derive(Clone, PartialEq, Eq)]
+pub enum SidebarEntry {
+    View(View),
+    Playlist(String),
+}
+
+impl SidebarEntry {
+    pub fn label(&self) -> &str {
+        match self {
+            SidebarEntry::View(view) => view.label(),
+            SidebarEntry::Playlist(name) => name,
+        }
+    }
+
+    pub fn icon(&self) -> &str {
+        match self {
+            SidebarEntry::View(view) => view.icon(),
+            SidebarEntry::Playlist(_) => "♫",
+        }
+    }
+}
+
 pub struct App {
     pub library: Vec<Track>,
     pub music_dir: PathBuf,
-    pub view: View,
+    pub sidebar: Vec<SidebarEntry>,
     pub focus: Focus,
     pub sidebar_index: usize,
     pub selected: usize,
@@ -60,6 +84,7 @@ pub struct App {
     pub status: String,
     pub should_quit: bool,
     player: MusicPlayer,
+    art: ArtLoader,
 }
 
 impl App {
@@ -75,10 +100,18 @@ impl App {
             }
         };
 
+        let mut sidebar: Vec<SidebarEntry> =
+            View::ALL.iter().copied().map(SidebarEntry::View).collect();
+        sidebar.extend(
+            crate::library::discover_playlists(&library)
+                .into_iter()
+                .map(SidebarEntry::Playlist),
+        );
+
         let mut app = Self {
             library,
             music_dir,
-            view: View::AllSongs,
+            sidebar,
             focus: Focus::Library,
             sidebar_index: 0,
             selected: 0,
@@ -92,6 +125,7 @@ impl App {
             status,
             should_quit: false,
             player,
+            art: ArtLoader::new(),
         };
         app.rebuild_visible();
         app
@@ -104,13 +138,17 @@ impl App {
     fn rebuild_visible(&mut self) {
         let query = self.search.trim().to_lowercase();
         let favorites = &self.favorites;
+        let entry = &self.sidebar[self.sidebar_index];
 
         self.visible = (0..self.library.len())
             .filter(|&i| {
                 let track = &self.library[i];
-                match self.view {
-                    View::Favorites => favorites.contains(&track.path),
-                    _ => true,
+                match entry {
+                    SidebarEntry::View(View::Favorites) => favorites.contains(&track.path),
+                    SidebarEntry::View(_) => true,
+                    SidebarEntry::Playlist(name) => {
+                        track.playlist.as_deref() == Some(name.as_str())
+                    }
                 }
             })
             .filter(|&i| {
@@ -121,10 +159,16 @@ impl App {
                 track.title.to_lowercase().contains(&query)
                     || track.artist.to_lowercase().contains(&query)
                     || track.album.to_lowercase().contains(&query)
+                    || track
+                        .playlist
+                        .as_deref()
+                        .unwrap_or_default()
+                        .to_lowercase()
+                        .contains(&query)
             })
             .collect();
 
-        if self.view == View::Recent {
+        if matches!(entry, SidebarEntry::View(View::Recent)) {
             self.visible
                 .sort_by(|&a, &b| self.library[b].added.cmp(&self.library[a].added));
         }
@@ -137,6 +181,22 @@ impl App {
         } else {
             Some(self.selected)
         });
+    }
+
+    pub fn selected_entry(&self) -> &SidebarEntry {
+        &self.sidebar[self.sidebar_index]
+    }
+
+    pub fn entry_count(&self, entry: &SidebarEntry) -> usize {
+        match entry {
+            SidebarEntry::View(View::Favorites) => self.favorites.len(),
+            SidebarEntry::View(_) => self.library.len(),
+            SidebarEntry::Playlist(name) => self
+                .library
+                .iter()
+                .filter(|t| t.playlist.as_deref() == Some(name.as_str()))
+                .count(),
+        }
     }
 
     pub fn selected_track(&self) -> Option<&Track> {
@@ -155,6 +215,14 @@ impl App {
         self.player.volume()
     }
 
+    pub fn album_art(&mut self, width: u32, height: u32) -> Option<&RgbaImage> {
+        let path = self
+            .current
+            .and_then(|i| self.library.get(i))
+            .map(|t| t.path.as_path());
+        self.art.get(path, width, height)
+    }
+
     fn move_selection(&mut self, delta: isize) {
         if self.visible.is_empty() {
             return;
@@ -165,9 +233,8 @@ impl App {
     }
 
     fn move_sidebar(&mut self, delta: isize) {
-        let len = View::ALL.len() as isize;
+        let len = self.sidebar.len() as isize;
         self.sidebar_index = (self.sidebar_index as isize + delta).rem_euclid(len) as usize;
-        self.view = View::ALL[self.sidebar_index];
         self.selected = 0;
         self.rebuild_visible();
     }
@@ -276,7 +343,7 @@ impl App {
         if !self.favorites.remove(&path) {
             self.favorites.insert(path);
         }
-        if self.view == View::Favorites {
+        if matches!(self.selected_entry(), SidebarEntry::View(View::Favorites)) {
             self.rebuild_visible();
         }
     }

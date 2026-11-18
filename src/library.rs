@@ -16,6 +16,7 @@ pub struct Track {
     pub duration: Duration,
     /// File modification time, used by the "Recently Added" view.
     pub added: SystemTime,
+    pub playlist: Option<String>,
 }
 
 /// File extensions we look for (case-insensitive).
@@ -79,6 +80,14 @@ pub fn scan(dir: &Path) -> Vec<Track> {
             album = "Unknown Album".to_string();
         }
 
+        let playlist = path.strip_prefix(dir).ok().and_then(|rel| {
+            let mut parts = rel.components();
+            let first = parts.next()?;
+            parts
+                .next()
+                .map(|_| first.as_os_str().to_string_lossy().into_owned())
+        });
+
         tracks.push(Track {
             path: path.to_path_buf(),
             title,
@@ -86,6 +95,7 @@ pub fn scan(dir: &Path) -> Vec<Track> {
             album,
             duration,
             added,
+            playlist,
         });
     }
 
@@ -96,6 +106,13 @@ pub fn scan(dir: &Path) -> Vec<Track> {
             .then_with(|| a.artist.to_lowercase().cmp(&b.artist.to_lowercase()))
     });
     tracks
+}
+
+pub fn discover_playlists(tracks: &[Track]) -> Vec<String> {
+    let mut names: Vec<String> = tracks.iter().filter_map(|t| t.playlist.clone()).collect();
+    names.sort();
+    names.dedup();
+    names
 }
 
 /// `m:ss` / `h:mm:ss` formatting for durations shown in the UI.
