@@ -1,0 +1,29 @@
+[package]
+name = "hypersound"
+version = "0.1.0"
+edition = "2021"
+description = "A fast, minimal terminal music player"
+license = "GPL-3.0-only"
+
+[dependencies]
+# crossterm_0_29 keeps the backend on the same crossterm version we use for
+# key events, so event types line up with the backend.
+ratatui = { version = "0.30.2", default-features = false, features = [
+    "crossterm_0_29",
+    "all-widgets",
+    "macros",
+    "layout-cache",
+    "underline-color",
+    "std",
+] }
+crossterm = "0.29.0"
+rodio = "0.23.0"
+lofty = "0.25.5"
+walkdir = "2.5.0"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"
